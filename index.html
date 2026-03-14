@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Pixel Car City</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+  *{margin:0;padding:0;box-sizing:border-box;}
+
+  body{
+    background:#0a0a0f;
+    overflow:hidden;
+    font-family:'Press Start 2P',monospace;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    height:100vh;
+  }
+
+  canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges;}
+
+  #overlay{
+    position:absolute;
+    top:0;left:0;width:100%;height:100%;
+    display:flex;align-items:center;justify-content:center;
+    pointer-events:none;
+  }
+
+  .screen{
+    background:rgba(0,0,0,0.95);
+    border:3px solid #f0c040;
+    padding:30px 40px;
+    text-align:center;
+    color:white;
+    pointer-events:all;
+    max-width:700px;
+    width:90%;
+    box-shadow:0 0 40px rgba(240,192,64,0.3);
+  }
+
+  .screen h1{
+    color:#f0c040;
+    font-size:18px;
+    margin-bottom:6px;
+    text-shadow:3px 3px 0 #a07010;
+    letter-spacing:2px;
+  }
+  .screen h2{color:#f0c040;font-size:13px;margin-bottom:16px;}
+
+  .screen p{font-size:8px;color:#aaa;margin-bottom:20px;line-height:18px;}
+
+  .btn{
+    display:inline-block;
+    padding:10px 20px;
+    margin:5px;
+    background:#1a1a2e;
+    color:#f0c040;
+    border:2px solid #f0c040;
+    font-family:'Press Start 2P',monospace;
+    font-size:8px;
+    cursor:pointer;
+    transition:all .1s;
+  }
+  .btn:hover{background:#f0c040;color:#000;}
+  .btn:active{transform:scale(0.97);}
+
+  #garage-grid{
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:center;
+    gap:10px;
+    max-height:280px;
+    overflow-y:auto;
+    padding:4px;
+    margin-bottom:14px;
+  }
+  #garage-grid::-webkit-scrollbar{width:4px;}
+  #garage-grid::-webkit-scrollbar-track{background:#111;}
+  #garage-grid::-webkit-scrollbar-thumb{background:#f0c040;}
+
+  .car-card{
+    background:#111;
+    border:2px solid #333;
+    padding:10px;
+    text-align:center;
+    width:130px;
+    cursor:pointer;
+    transition:border-color .1s;
+  }
+  .car-card:hover{border-color:#f0c040;}
+  .car-card.selected{border-color:#f0c040;background:#1a1500;}
+  .car-card .car-name{font-size:6px;color:#ccc;margin:6px 0 4px;}
+  .car-card .car-price{font-size:6px;color:#f0c040;}
+  .car-card .car-speed{font-size:5px;color:#4ff;margin-bottom:6px;}
+  .car-card .car-btn{
+    font-size:6px;padding:4px 8px;margin-top:4px;
+    background:#222;color:#f0c040;border:1px solid #555;
+    font-family:'Press Start 2P',monospace;cursor:pointer;
+  }
+  .car-card .car-btn:hover{background:#f0c040;color:#000;}
+
+  #money-display{font-size:9px;color:#4f4;margin-bottom:14px;}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="overlay">
+
+  <!-- MENU -->
+  <div class="screen" id="menuScreen">
+    <h1>🚗 PIXEL CAR CITY</h1>
+    <p>Desvie do tráfego, colete moedas<br>e fuja da polícia!</p>
+    <button class="btn" onclick="showGarage()">🏎 GARAGEM</button>
+    <button class="btn" onclick="startGame()">▶ JOGAR</button>
+    <br><br>
+    <p style="font-size:6px">↑↓ Faixa &nbsp;|&nbsp; → Acelerar &nbsp;|&nbsp; ESPAÇO Frear &nbsp;|&nbsp; SHIFT Nitro &nbsp;|&nbsp; R Reiniciar</p>
+  </div>
+
+  <!-- GARAGE -->
+  <div class="screen hidden" id="garageScreen">
+    <h2>🔧 GARAGEM</h2>
+    <div id="money-display">💰 <span id="moneyVal">0</span></div>
+    <div id="garage-grid"></div>
+    <button class="btn" onclick="showMenu()">← VOLTAR</button>
+    <button class="btn" onclick="startGame()">▶ DIRIGIR</button>
+  </div>
+
+  <!-- GAME OVER -->
+  <div class="screen hidden" id="gameoverScreen">
+    <h1>💥 GAME OVER</h1>
+    <p id="goReason" style="font-size:7px;color:#f44;margin-bottom:10px;"></p>
+    <p id="goStats" style="font-size:7px;margin-bottom:16px;"></p>
+    <button class="btn" onclick="resetGame();hideAll();">🔁 TENTAR DE NOVO</button>
+    <button class="btn" onclick="showMenu()">🏠 MENU</button>
+  </div>
+
+</div>
+
+<script>
+const canvas=document.getElementById('game')
+const ctx=canvas.getContext('2d')
+
+// ── Responsive sizing ──────────────────────────────────────────────
+const W=900,H=500
+canvas.width=W
+canvas.height=H
+
+function scaleCanvas(){
+  const sw=window.innerWidth,sh=window.innerHeight
+  const scale=Math.min(sw/W,sh/H)
+  canvas.style.width=W*scale+'px'
+  canvas.style.height=H*scale+'px'
+}
+window.addEventListener('resize',scaleCanvas)
+scaleCanvas()
+
+// ── Input ──────────────────────────────────────────────────────────
+const keys={}
+document.addEventListener('keydown',e=>{
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Shift',' '].includes(e.key)) e.preventDefault()
+  keys[e.key]=true
+})
+document.addEventListener('keyup',e=>keys[e.key]=false)
+
+// ── Cars DB ────────────────────────────────────────────────────────
+const CAR_DATA=[
+  {name:'Fusquinha',  price:0,   spd:4.5, color:'#e8e810', accent:'#b8b800'},
+  {name:'Cupê',       price:200, spd:5.5, color:'#f05050', accent:'#a02020'},
+  {name:'SUV',        price:350, spd:5.0, color:'#50b0f0', accent:'#2070b0'},
+  {name:'Esportivo',  price:600, spd:7.0, color:'#f030f0', accent:'#900090'},
+  {name:'Pickup',     price:800, spd:6.0, color:'#40e040', accent:'#208020'},
+  {name:'Sedã',      price:1000, spd:6.5, color:'#f09030', accent:'#a05010'},
+  {name:'GT Turbo',  price:1500, spd:8.5, color:'#30f0f0', accent:'#108080'},
+  {name:'Muscle',    price:2000, spd:8.0, color:'#ff6010', accent:'#c03000'},
+  {name:'Hypercar', price:4000, spd:10.5, color:'#e0e0ff', accent:'#8080ff'},
+  {name:'F1 Racer', price:9999, spd:13.0, color:'#ff1050', accent:'#700020'},
+]
+
+// ── Game state ─────────────────────────────────────────────────────
+const LANES=[305,355,405]
+let running=false
+let animId=null
+
+let player,police
+let score,money,nitro,roadOff,gameTime
+let coins,buildings,npcs,particles,shields
+let multiplier,distanceCoin
+let ownedCars,currentCar
+let policeWarn // warning timer before police appears
+let started=false
+
+// ── Screens ────────────────────────────────────────────────────────
+function hideAll(){
+  document.getElementById('menuScreen').classList.add('hidden')
+  document.getElementById('garageScreen').classList.add('hidden')
+  document.getElementById('gameoverScreen').classList.add('hidden')
+}
+function showMenu(){
+  hideAll()
+  document.getElementById('menuScreen').classList.remove('hidden')
+  running=false
+}
+function showGarage(){
+  hideAll()
+  document.getElementById('garageScreen').classList.remove('hidden')
+  buildGarage()
+}
+function buildGarage(){
+  document.getElementById('moneyVal').textContent=money
+  const grid=document.getElementById('garage-grid')
+  grid.innerHTML=''
+  CAR_DATA.forEach((c,i)=>{
+    const owned=ownedCars.includes(i)
+    const sel=currentCar===i
+    const card=document.createElement('div')
+    card.className='car-card'+(sel?' selected':'')
+
+    const cv=document.createElement('canvas')
+    cv.width=90;cv.height=44
+    drawCarPixel(cv.getContext('2d'),5,4,c.color,c.accent,'r',1)
+    card.appendChild(cv)
+
+    const nm=document.createElement('div');nm.className='car-name';nm.textContent=c.name;card.appendChild(nm)
+    const sp=document.createElement('div');sp.className='car-speed';sp.textContent='VEL: '+'█'.repeat(Math.round(c.spd/1.4));card.appendChild(sp)
+
+    const btn=document.createElement('button');btn.className='car-btn'
+    if(sel)          { btn.textContent='✓ ATIVO';btn.disabled=true }
+    else if(owned)   { btn.textContent='SELECIONAR';btn.onclick=()=>{currentCar=i;buildGarage()} }
+    else if(money>=c.price){ btn.textContent='$'+c.price+' COMPRAR';btn.onclick=()=>{money-=c.price;ownedCars.push(i);currentCar=i;buildGarage()} }
+    else             { btn.textContent='$'+c.price;btn.disabled=true;btn.style.color='#555' }
+    card.appendChild(btn)
+    grid.appendChild(card)
+  })
+}
+
+// ── Draw car (pixel art style) ─────────────────────────────────────
+function drawCarPixel(c,x,y,col,acc,dir='r',s=1){
+  c.save()
+  c.scale(s,s)
+  const flip=dir==='l'
+
+  if(flip){c.save();c.translate(x*2+60,0);c.scale(-1,1)}
+
+  // body
+  c.fillStyle=col
+  c.fillRect(x+8,y+14,46,16)
+  c.fillRect(x+16,y+6,28,12)
+
+  // windows
+  c.fillStyle='rgba(120,220,255,0.85)'
+  c.fillRect(x+18,y+8,12,9)
+  c.fillRect(x+32,y+8,10,9)
+
+  // window divider
+  c.fillStyle='rgba(0,0,0,0.4)'
+  c.fillRect(x+30,y+8,2,9)
+
+  // accent stripe
+  c.fillStyle=acc
+  c.fillRect(x+8,y+20,46,4)
+
+  // roof
+  c.fillStyle=acc
+  c.fillRect(x+15,y+6,30,3)
+
+  // wheels
+  c.fillStyle='#111'
+  c.fillRect(x+10,y+27,12,10)
+  c.fillRect(x+40,y+27,12,10)
+  c.fillStyle='#555'
+  c.fillRect(x+13,y+29,6,6)
+  c.fillRect(x+43,y+29,6,6)
+
+  // headlights
+  c.fillStyle='#ffff80'
+  c.fillRect(x+54,y+16,4,5)
+  // tail lights
+  c.fillStyle='#ff2020'
+  c.fillRect(x+8,y+16,4,5)
+
+  if(flip) c.restore()
+  c.restore()
+}
+
+function drawPolicePixel(c,x,y){
+  drawCarPixel(c,x,y,'#111','#222','l',1)
+  // police stripe
+  c.fillStyle='white'
+  c.fillRect(x+8,y+20,23,4)
+  c.fillStyle='#222'
+  c.fillRect(x+31,y+20,23,4)
+  // lights
+  if(Math.floor(Date.now()/200)%2===0){
+    c.fillStyle='#3399ff';c.fillRect(x+22,y+4,10,5)
+    c.fillStyle='red';c.fillRect(x+32,y+4,10,5)
+  } else {
+    c.fillStyle='red';c.fillRect(x+22,y+4,10,5)
+    c.fillStyle='#3399ff';c.fillRect(x+32,y+4,10,5)
+  }
+}
+
+// ── Reset / Init ────────────────────────────────────────────────────
+function initPersistent(){
+  money=100
+  ownedCars=[0]
+  currentCar=0
+}
+
+function resetGame(){
+  player={x:200,lane:1,invincible:0,shieldTimer:0}
+  police={x:-200,lane:1,active:false,speed:2.5}
+  score=0;nitro=100;roadOff=0;gameTime=0;currentSpd=1.5
+  multiplier=1;distanceCoin=0
+  policeWarn=300
+  player.hp=3;player.maxHp=3
+
+  coins=[]
+  for(let i=0;i<12;i++){
+    coins.push({x:900+Math.random()*2000,lane:Math.floor(Math.random()*3),type:Math.random()<0.12?'gem':'coin'})
+  }
+
+  shields=[]
+  for(let i=0;i<4;i++){
+    shields.push({x:1200+i*1800+Math.random()*600, lane:Math.floor(Math.random()*3)})
+  }
+
+  buildings=[]
+  for(let i=0;i<60;i++){
+    buildings.push({
+      x:i*180+Math.random()*60,
+      w:80+Math.random()*120,
+      h:80+Math.random()*200,
+      color:'hsl('+Math.floor(Math.random()*360)+',20%,22%)',
+      lit:[]
+    })
+  }
+  // generate window lights
+  buildings.forEach(b=>{
+    const rows=Math.floor(b.h/20),cols=Math.floor(b.w/18)
+    for(let r=0;r<rows;r++) for(let cl=0;cl<cols;cl++){
+      if(Math.random()<0.4) b.lit.push({r,c:cl,on:Math.random()<0.7})
+    }
+  })
+
+  npcs=[]
+  for(let i=0;i<14;i++){
+    npcs.push({
+      x:900+Math.random()*2500,
+      lane:Math.floor(Math.random()*3),
+      speed:2+Math.random()*2.5,
+      color:'hsl('+Math.floor(Math.random()*360)+',60%,55%)',
+      accent:'hsl('+Math.floor(Math.random()*360)+',40%,35%)'
+    })
+  }
+
+  particles=[]
+  running=true
+}
+
+// ── Particles ──────────────────────────────────────────────────────
+function spawnParticles(x,y,col,n=6){
+  for(let i=0;i<n;i++){
+    particles.push({
+      x,y,
+      vx:(Math.random()-0.5)*4,
+      vy:-Math.random()*4-1,
+      life:40,
+      color:col,
+      size:3+Math.random()*4
+    })
+  }
+}
+function updateParticles(){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i]
+    p.x+=p.vx;p.y+=p.vy;p.vy+=0.15;p.life--
+    if(p.life<=0) particles.splice(i,1)
+  }
+}
+function drawParticles(){
+  particles.forEach(p=>{
+    ctx.globalAlpha=p.life/40
+    ctx.fillStyle=p.color
+    ctx.fillRect(p.x,p.y,p.size,p.size)
+  })
+  ctx.globalAlpha=1
+}
+
+// ── Road ───────────────────────────────────────────────────────────
+let currentSpd=5
+function getSpeed(){
+  const baseSpd=CAR_DATA[currentCar].spd
+  const braking=keys[' ']||keys['ArrowLeft']||keys['a']
+  const boosting=keys['ArrowRight']||keys['d']
+  if(braking){
+    currentSpd=Math.max(0.8, currentSpd-0.45)
+  } else if(keys['Shift']&&nitro>0){
+    currentSpd=Math.min(baseSpd+5, currentSpd+0.5)
+    nitro=Math.max(0,nitro-1.2)
+  } else if(boosting){
+    currentSpd=Math.min(baseSpd, currentSpd+0.6)
+    nitro=Math.min(100,nitro+0.4)
+  } else {
+    currentSpd=Math.min(baseSpd, currentSpd+0.25)
+    nitro=Math.min(100,nitro+0.4)
+  }
+  return currentSpd
+}
+
+function drawSky(){
+  const grad=ctx.createLinearGradient(0,0,0,290)
+  grad.addColorStop(0,'#0a0a20')
+  grad.addColorStop(1,'#1a2040')
+  ctx.fillStyle=grad
+  ctx.fillRect(0,0,W,290)
+
+  // stars
+  ctx.fillStyle='white'
+  for(let i=0;i<80;i++){
+    const sx=((i*137+roadOff*0.05)%W+W)%W
+    const sy=(i*61)%200+10
+    const br=((gameTime/30+i)%1)
+    ctx.globalAlpha=0.3+br*0.5
+    ctx.fillRect(sx,sy,1+Math.floor(i%3/2),1)
+  }
+  ctx.globalAlpha=1
+
+  // moon
+  ctx.fillStyle='#ffe8a0'
+  ctx.beginPath()
+  ctx.arc(820,50,18,0,Math.PI*2)
+  ctx.fill()
+  ctx.fillStyle='#0a0a20'
+  ctx.beginPath()
+  ctx.arc(828,46,14,0,Math.PI*2)
+  ctx.fill()
+}
+
+function drawBuildings(){
+  buildings.forEach(b=>{
+    let x=((b.x-roadOff*0.3)%10800+10800)%10800-200
+    if(x>W+200) return
+
+    ctx.fillStyle=b.color
+    ctx.fillRect(x,290-b.h,b.w,b.h)
+
+    // windows
+    b.lit.forEach(w=>{
+      const wx=x+w.c*18+5
+      const wy=290-b.h+w.r*20+5
+      if(wy<290 && wy>0){
+        const flicker=w.on&&(gameTime%120<5?Math.random()<0.5:true)
+        ctx.fillStyle=flicker?'rgba(255,240,160,0.9)':'rgba(20,20,40,0.6)'
+        ctx.fillRect(wx,wy,10,12)
+      }
+    })
+
+    // rooftop antenna occasionally
+    if(b.h>150){
+      ctx.fillStyle='#555'
+      ctx.fillRect(x+b.w/2-1,290-b.h-20,2,20)
+      // blinking red light
+      if(Math.floor(gameTime/30)%2===0){
+        ctx.fillStyle='red'
+        ctx.fillRect(x+b.w/2-2,290-b.h-22,4,4)
+      }
+    }
+  })
+}
+
+function drawRoad(spd){
+  roadOff+=spd
+
+  // road base
+  const grad=ctx.createLinearGradient(0,290,0,500)
+  grad.addColorStop(0,'#303035')
+  grad.addColorStop(1,'#1a1a20')
+  ctx.fillStyle=grad
+  ctx.fillRect(0,290,W,210)
+
+  // sidewalk top
+  ctx.fillStyle='#4a4a50'
+  ctx.fillRect(0,290,W,8)
+
+  // lane dividers
+  ctx.strokeStyle='rgba(255,255,255,0.5)'
+  ctx.lineWidth=3
+  ctx.setLineDash([40,30])
+  ctx.lineDashOffset=-roadOff%70
+
+  for(let lane=0;lane<2;lane++){
+    const y=330+lane*50
+    ctx.beginPath()
+    ctx.moveTo(0,y);ctx.lineTo(W,y)
+    ctx.stroke()
+  }
+  ctx.setLineDash([])
+
+  // edge lines
+  ctx.strokeStyle='rgba(255,240,0,0.6)'
+  ctx.lineWidth=3
+  ctx.beginPath();ctx.moveTo(0,294);ctx.lineTo(W,294);ctx.stroke()
+  ctx.beginPath();ctx.moveTo(0,464);ctx.lineTo(W,464);ctx.stroke()
+
+  // road shimmer
+  ctx.fillStyle='rgba(255,255,255,0.02)'
+  for(let i=0;i<3;i++){
+    const rx=((i*250-roadOff*0.5)%W+W)%W
+    ctx.fillRect(rx,290,60,175)
+  }
+}
+
+// ── Coins ──────────────────────────────────────────────────────────
+function updateCoins(spd){
+  coins.forEach(c=>{
+    c.x-=spd
+    if(c.x<-60){ c.x=W+Math.random()*1500;c.lane=Math.floor(Math.random()*3);c.type=Math.random()<0.12?'gem':'coin' }
+  })
+}
+
+function drawCoins(){
+  coins.forEach(c=>{
+    const cx=c.x+15,cy=LANES[c.lane]+18
+    if(c.type==='gem'){
+      ctx.fillStyle='#a0f0ff'
+      ctx.shadowColor='#a0f0ff';ctx.shadowBlur=8
+      ctx.beginPath()
+      ctx.moveTo(cx,cy-8);ctx.lineTo(cx+6,cy);ctx.lineTo(cx,cy+8);ctx.lineTo(cx-6,cy)
+      ctx.closePath();ctx.fill()
+      ctx.shadowBlur=0
+    } else {
+      const bob=Math.sin(gameTime*0.1+c.x*0.05)*2
+      ctx.fillStyle='#f0c040'
+      ctx.shadowColor='#f0c040';ctx.shadowBlur=6
+      ctx.beginPath()
+      ctx.arc(cx,cy+bob,7,0,Math.PI*2)
+      ctx.fill()
+      ctx.fillStyle='#f0a000'
+      ctx.font='bold 8px monospace'
+      ctx.fillText('$',cx-3,cy+bob+3)
+      ctx.shadowBlur=0
+    }
+  })
+}
+
+// ── Shields ────────────────────────────────────────────────────────
+function updateShields(spd){
+  shields.forEach(s=>{
+    s.x-=spd
+    if(s.x<-80){ s.x=W+1500+Math.random()*2000; s.lane=Math.floor(Math.random()*3) }
+  })
+}
+
+function drawShields(){
+  shields.forEach(s=>{
+    const cx=s.x+16, cy=LANES[s.lane]+18
+    const t=gameTime*0.05
+    const pulse=Math.sin(t+s.x*0.01)*3
+
+    // outer glow ring
+    ctx.strokeStyle='rgba(80,200,255,0.3)'
+    ctx.lineWidth=6
+    ctx.beginPath()
+    ctx.arc(cx,cy,18+pulse,0,Math.PI*2)
+    ctx.stroke()
+
+    // shield body
+    ctx.fillStyle='rgba(30,140,220,0.25)'
+    ctx.shadowColor='#50c8ff'
+    ctx.shadowBlur=14
+    ctx.beginPath()
+    ctx.arc(cx,cy,13,0,Math.PI*2)
+    ctx.fill()
+
+    // shield icon ❤ outline
+    ctx.strokeStyle='#a0eeff'
+    ctx.lineWidth=2
+    ctx.beginPath()
+    ctx.arc(cx,cy,13,0,Math.PI*2)
+    ctx.stroke()
+
+    // cross / plus symbol inside
+    ctx.fillStyle='#ffffff'
+    ctx.shadowBlur=6
+    ctx.fillRect(cx-1,cy-7,3,14)
+    ctx.fillRect(cx-7,cy-1,14,3)
+
+    // heart shape
+    ctx.fillStyle='#50c8ff'
+    ctx.font='bold 11px monospace'
+    ctx.fillText('🛡',cx-7,cy+5)
+    ctx.shadowBlur=0
+  })
+}
+function updateNPCs(spd){
+  npcs.forEach(n=>{
+    n.x-=n.speed+spd*0.15
+    if(n.x<-120){ n.x=W+Math.random()*2000;n.lane=Math.floor(Math.random()*3) }
+  })
+}
+
+// ── Police ─────────────────────────────────────────────────────────
+function updatePolice(spd){
+  if(!police.active){
+    policeWarn--
+    if(policeWarn<=0){ police.active=true;police.x=-200;police.lane=player.lane;police.speed=1.5 }
+    return
+  }
+
+  // A polícia acelera gradualmente ao longo do tempo, SEM depender da vel do jogador
+  // Chega a ser mais rápida que o jogador se ele ficar devagar
+  police.speed = Math.min(police.speed + 0.0015, CAR_DATA[currentCar].spd + 0.5)
+
+  // A polícia se move na tela pelo seu próprio valor absoluto de velocidade
+  // O jogador está "parado" visualmente em x=200, então a polícia avança
+  // subtraindo a velocidade do jogador (road speed) e somando a própria
+  const relativeSpeed = police.speed - spd
+  police.x += relativeSpeed
+
+  // Nunca deixa a polícia recuar pra fora da tela da esquerda
+  if(police.x < -300) police.x = -300
+
+  // chase lane — muda faixa a cada 45 frames
+  if(gameTime%45===0){
+    if(police.lane!==player.lane){
+      police.lane=police.lane<player.lane?police.lane+1:police.lane-1
+    }
+  }
+
+  if(police.x+50>=player.x) gameOver('CAPTURADO PELA POLÍCIA!')
+}
+
+// ── Collisions ─────────────────────────────────────────────────────
+function checkCollisions(spd){
+  const px=player.x+10, pw=42
+
+  // coins
+  coins.forEach(c=>{
+    if(c.lane!==player.lane) return
+    const cx=c.x+10
+    if(Math.abs(cx-px)<28){
+      if(c.type==='gem'){ money+=10;spawnParticles(c.x,LANES[c.lane],'#a0f0ff',10) }
+      else              { money++;spawnParticles(c.x,LANES[c.lane],'#f0c040',6) }
+      buildGarageIfVisible()
+      c.x=-200
+    }
+  })
+
+  // shield pickup
+  shields.forEach(s=>{
+    if(s.lane!==player.lane) return
+    const sx=s.x+6
+    if(Math.abs(sx-px)<30){
+      player.shieldTimer=20*60 // 20 segundos (60fps)
+      spawnParticles(s.x+16,LANES[s.lane],'#50c8ff',16)
+      spawnParticles(s.x+16,LANES[s.lane]-10,'#ffffff',10)
+      s.x=-500
+    }
+  })
+
+  // npc crash
+  if(player.invincible>0){ player.invincible--;return }
+  if(player.shieldTimer>0) player.shieldTimer--
+  npcs.forEach(n=>{
+    if(n.lane!==player.lane) return
+    const nx=n.x+10,nw=42
+    if(px<nx+nw && px+pw>nx){
+      if(player.shieldTimer>0){
+        // escudo absorve — empurra o NPC pra trás com spark
+        spawnParticles(player.x,LANES[player.lane],'#50c8ff',16)
+        spawnParticles(player.x,LANES[player.lane],'#ffffff',8)
+        n.x=player.x-120 // rebate o NPC
+      } else {
+        spawnParticles(player.x,LANES[player.lane],'#ff4040',20)
+        spawnParticles(player.x+20,LANES[player.lane]-10,'#ff8800',12)
+        player.hp--
+        player.invincible=120
+        currentSpd=Math.max(0.8, currentSpd*0.4)
+        if(player.hp<=0) gameOver('CARRO DESTRUÍDO!')
+      }
+    }
+  })
+}
+
+function buildGarageIfVisible(){
+  if(!document.getElementById('garageScreen').classList.contains('hidden')) buildGarage()
+  document.getElementById('moneyVal').textContent=money
+}
+
+// ── Move player ────────────────────────────────────────────────────
+let laneCD=0
+function movePlayer(){
+  if(laneCD>0){laneCD--;return}
+  if(keys['ArrowUp']||keys['w']){player.lane=Math.max(0,player.lane-1);laneCD=12}
+  if(keys['ArrowDown']||keys['s']){player.lane=Math.min(2,player.lane+1);laneCD=12}
+}
+
+// ── HUD ────────────────────────────────────────────────────────────
+function drawHUD(){
+  // top bar
+  ctx.fillStyle='rgba(0,0,0,0.7)'
+  ctx.fillRect(0,0,W,44)
+
+  ctx.fillStyle='white'
+  ctx.font='9px "Press Start 2P"'
+  ctx.fillText('PONTOS',14,16)
+  ctx.fillStyle='#f0c040'
+  ctx.font='12px "Press Start 2P"'
+  ctx.fillText(String(Math.floor(score)).padStart(6,'0'),14,34)
+
+  ctx.fillStyle='white'
+  ctx.font='9px "Press Start 2P"'
+  ctx.fillText('DINHEIRO',180,16)
+  ctx.fillStyle='#40ff80'
+  ctx.font='11px "Press Start 2P"'
+  ctx.fillText('$'+money,180,34)
+
+  // HP hearts
+  ctx.font='9px "Press Start 2P"'
+  ctx.fillStyle='white'
+  ctx.fillText('VIDA',330,16)
+  for(let i=0;i<player.maxHp;i++){
+    const full=i<player.hp
+    // heart glow when low
+    if(full && player.hp===1){
+      ctx.shadowColor='#ff0000'
+      ctx.shadowBlur=Math.floor(gameTime/5)%2===0?10:4
+    }
+    ctx.font='16px monospace'
+    ctx.fillStyle=full?'#ff3333':'#333'
+    ctx.fillText('♥',330+i*22,36)
+    ctx.shadowBlur=0
+  }
+
+  ctx.fillStyle='white'
+  ctx.font='9px "Press Start 2P"'
+  ctx.fillText('NITRO',380,16)
+
+  // nitro bar
+  const nw=160
+  ctx.fillStyle='#222'
+  ctx.fillRect(380,22,nw,12)
+  const nfill=nitro/100*nw
+  const ncol=nitro>50?'#00ccff':nitro>25?'#ffaa00':'#ff3333'
+  ctx.fillStyle=ncol
+  ctx.fillRect(380,22,nfill,12)
+  if(keys['Shift']&&nitro>0){
+    ctx.fillStyle='rgba(255,255,255,0.5)'
+    ctx.fillRect(380,22,nfill,6)
+  }
+  ctx.strokeStyle='#555';ctx.lineWidth=1
+  ctx.strokeRect(380,22,nw,12)
+
+  // police warning
+  if(police.active){
+    ctx.fillStyle=Math.floor(gameTime/15)%2===0?'#ff3333':'#ff9900'
+    ctx.font='8px "Press Start 2P"'
+    ctx.fillText('⚠ POLÍCIA!',600,20)
+    const policeGap=player.x-police.x
+    const barW=200
+    ctx.fillStyle='#333';ctx.fillRect(600,26,barW,10)
+    ctx.fillStyle='#ff4444'
+    ctx.fillRect(600,26,Math.max(0,barW-policeGap*0.6),10)
+  } else if(policeWarn<180){
+    ctx.fillStyle=Math.floor(gameTime/8)%2===0?'#ff9900':'transparent'
+    ctx.font='7px "Press Start 2P"'
+    ctx.fillText('POLÍCIA SE APROXIMA...',570,22)
+  }
+
+  // speed meter
+  const braking=keys[' ']||keys['ArrowLeft']||keys['a']
+  const boosting=keys['ArrowRight']||keys['d']
+  ctx.fillStyle='rgba(0,0,0,0.6)'
+  ctx.fillRect(W-110,0,110,44)
+  ctx.fillStyle= braking?'#ff4444':boosting?'#44ff88':'#aaa'
+  ctx.font='7px "Press Start 2P"'
+  ctx.fillText(braking?'FREIO ▌▌':boosting?'ACCEL ▶▶':'VEL',W-100,14)
+  const displaySpd=Math.floor(currentSpd*38)
+  ctx.fillStyle=braking?'#ff6666':boosting?'#44ff88':(keys['Shift']&&nitro>0?'#ffff44':'#4ff')
+  ctx.font='11px "Press Start 2P"'
+  ctx.fillText(displaySpd+'km/h',W-106,34)
+
+  // multiplier
+  if(multiplier>1){
+    ctx.fillStyle='#f0c040'
+    ctx.font='10px "Press Start 2P"'
+    ctx.fillText('x'+multiplier.toFixed(1),120,30)
+  }
+}
+
+// ── Game Over ──────────────────────────────────────────────────────
+function gameOver(reason){
+  running=false
+  document.getElementById('goReason').textContent=reason
+  document.getElementById('goStats').innerHTML=
+    'PONTUAÇÃO: '+Math.floor(score)+'<br>DINHEIRO: $'+money
+  document.getElementById('gameoverScreen').classList.remove('hidden')
+}
+
+// ── Main Loop ──────────────────────────────────────────────────────
+function startGame(){
+  hideAll()
+  resetGame()
+  if(!started){started=true;loop()}
+}
+
+function loop(){
+  requestAnimationFrame(loop)
+  ctx.clearRect(0,0,W,H)
+
+  if(!running){
+    // idle background when on menu/gameover
+    drawSky()
+    return
+  }
+
+  gameTime++
+  const spd=getSpeed()
+
+  drawSky()
+  drawBuildings()
+  drawRoad(spd)
+  drawCoins()
+  drawShields()
+
+  updateCoins(spd)
+  updateShields(spd)
+  updateNPCs(spd)
+  updatePolice(spd)
+  movePlayer()
+  checkCollisions(spd)
+  updateParticles()
+  drawParticles()
+
+  // Draw NPCs
+  npcs.forEach(n=>drawCarPixel(ctx,n.x,LANES[n.lane],n.color,n.accent,'l'))
+
+  // Player — blink when invincible after hit
+  const playerY=LANES[player.lane]
+  const showPlayer=player.invincible===0||Math.floor(gameTime/6)%2===0
+  if(showPlayer) drawCarPixel(ctx,player.x,playerY,CAR_DATA[currentCar].color,CAR_DATA[currentCar].accent,'r')
+
+  // shield aura around car
+  if(player.shieldTimer>0){
+    const cx=player.x+31, cy=playerY+20
+    const fade=Math.min(1, player.shieldTimer/30) // fade out in last 0.5s
+    const pulse=Math.sin(gameTime*0.12)*4
+    const rings=3
+    for(let r=0;r<rings;r++){
+      const rad=28+r*8+pulse
+      const alpha=(0.55-r*0.15)*fade
+      ctx.strokeStyle=`rgba(80,200,255,${alpha.toFixed(2)})`
+      ctx.lineWidth=3-r*0.5
+      ctx.shadowColor='#50c8ff'
+      ctx.shadowBlur=10*fade
+      ctx.beginPath()
+      ctx.arc(cx,cy,rad,0,Math.PI*2)
+      ctx.stroke()
+    }
+    // hex sparkle dots rotating around car
+    for(let d=0;d<6;d++){
+      const angle=gameTime*0.06+d*(Math.PI/3)
+      const dx=cx+Math.cos(angle)*34
+      const dy=cy+Math.sin(angle)*22
+      ctx.fillStyle=`rgba(180,240,255,${(0.7*fade).toFixed(2)})`
+      ctx.fillRect(dx-2,dy-2,4,4)
+    }
+    ctx.shadowBlur=0
+
+    // timer bar under the HUD hearts area
+    const barW=80, barX=330, barY=46
+    const pct=player.shieldTimer/(20*60)
+    ctx.fillStyle='rgba(0,0,0,0.6)'
+    ctx.fillRect(barX,barY,barW,7)
+    ctx.fillStyle=pct>0.3?'#50c8ff':'#ff8844'
+    ctx.fillRect(barX,barY,barW*pct,7)
+    ctx.strokeStyle='#336'
+    ctx.lineWidth=1
+    ctx.strokeRect(barX,barY,barW,7)
+  }
+
+  // damage flash overlay
+  if(player.invincible>100){
+    ctx.fillStyle='rgba(255,0,0,'+(0.35*(player.invincible-100)/20).toFixed(2)+')'
+    ctx.fillRect(0,0,W,H)
+  }
+
+  // nitro flame
+  if(keys['Shift']&&nitro>0){
+    ctx.fillStyle=Math.random()<0.5?'#ff8800':'#ffff00'
+    ctx.fillRect(player.x+2,playerY+17,6+Math.floor(Math.random()*10),4)
+  }
+  // brake lights
+  if(keys[' ']||keys['ArrowLeft']||keys['a']){
+    ctx.fillStyle='#ff2020'
+    ctx.shadowColor='#ff0000';ctx.shadowBlur=10
+    ctx.fillRect(player.x+8,playerY+16,5,6)
+    ctx.fillRect(player.x+9,playerY+15,3,8)
+    ctx.shadowBlur=0
+  }
+
+  // Police
+  if(police.active) drawPolicePixel(ctx,police.x,LANES[police.lane])
+
+  score+=0.1*CAR_DATA[currentCar].spd
+  drawHUD()
+
+  // restart
+  if(keys['r']||keys['R']){resetGame();hideAll()}
+}
+
+// ── Boot ───────────────────────────────────────────────────────────
+initPersistent()
+loop()
+
+</script>
+</body>
+</html>
